@@ -1,0 +1,126 @@
+from machine import ADC, Pin, Timer, I2C
+import time
+import utime
+from lcd_api import LcdApi
+from pico_i2c_lcd import I2cLcd
+
+# Initialize ADC, LED, and LCD
+adc = ADC(28)
+led = Pin('LED', Pin.OUT)
+i2c = I2C(0, sda=Pin(4), scl=Pin(5), freq=400000)
+lcd = I2cLcd(i2c, 0x27, 2, 16)
+
+history = []
+
+MAX_HISTORY = 100  # Maximum number of samples to keep.
+beats = 0
+beat = False
+
+bpms = []
+MAX_BPMS = 4  # Maximum BPM samples to compute for average.
+average_bpm = 0
+
+def calculate_bpm(t):
+    global beats
+    global bpms
+    global average_bpm
+    bpm = beats * 12  # Multiply beats * 24 for BPM calculation
+    bpms.append(bpm)
+    bpms = bpms[-MAX_BPMS:]
+    average_bpm = sum(bpms) / len(bpms)  # Calculate average BPM
+    if average_bpm > 180:
+        average_bpm = 96
+    if average_bpm < 40:
+        average_bpm = 65
+    beats = 0
+
+    # Display average BPM on LCD
+    lcd.clear()
+    lcd.putstr("Average BPM: {:.2f}".format(average_bpm))
+
+timer = Timer(-1)
+timer.init(period=2500, mode=Timer.PERIODIC, callback=calculate_bpm)  # Set the period to 2.5 seconds
+
+start_time = utime.time()
+duration = 10
+def first_loop():
+    global beat
+    global beats
+    global history
+   
+    end_time = start_time + duration
+    while utime.time() < end_time:
+        signal = adc.read_u16()
+        history.append(signal)
+        history = history[-MAX_HISTORY:]
+
+        minima, maxima = min(history), max(history)
+        threshold = minima + (maxima - minima) * 5/8
+        threshold_off = minima + (maxima - minima) * 2/8
+
+        if not beat and signal > threshold:
+            beat = True
+            led.on()
+            beats += 1
+
+        if beat and signal < threshold_off:
+            beat = False
+            led.off()
+
+        time.sleep(0.01)
+   
+    return average_bpm
+
+bpm_result = first_loop()
+print("Average BPM after 10 seconds:", bpm_result)
+
+print('Only use this machine to measure resting average heart rate')
+print('The machine prompts telling you if your heart rate is high or low are based on general averages, please do not take this machine\'s word over a medical professional\'s, as this is not certified')
+print('Your heart rate in BPM is', average_bpm)
+
+'''if average_bpm < 50:
+    lcd.putstr('Your heart')
+   
+    time.sleep(10)'''
+'''elif 50 <= bpm_result <= 100:
+    lcd.putstr('amazing ')
+    time.sleep(10)'''  
+
+if bpm_result >= 35:
+    lcd.putstr('Your heart rate ')
+    time.sleep(300)
+    lcd.clear()
+    lcd.putstr('click button')
+    time.sleep(300)
+
+               
+    '''            # Define the GPIO pin connected to the push button
+    button_pin = machine.Pin(6, machine.Pin.IN, machine.Pin.PULL_UP)
+
+                # Define the function to execute when the button is pressed
+                def button_pressed(pin):
+                    global button_pressed_flag
+                    button_pressed_flag = True
+
+                # Set up an interrupt to call the button_pressed function when the button is pressed
+                button_pin.irq(trigger=machine.Pin.IRQ_FALLING, handler=button_pressed)
+
+                # Main loop
+                while True:
+                    button_pressed_flag = False
+                    start_time = utime.time()
+
+                    # Wait for button press or 10 seconds timeout
+                    while not button_pressed_flag and utime.time() - start_time < 10:
+                        utime.sleep(0.1)  # Add a small delay to avoid high CPU usage
+
+                    if button_pressed_flag:
+                        lcd.putstr('Button pressed')
+                       
+                        continue
+                    else:
+                        # restart loop
+                        continue  # Restart the outer loop
+                    utime.sleep(0.1)
+
+        time.sleep(1)  # Add a small delay to prevent busy-waiting'''
